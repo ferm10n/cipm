@@ -45,6 +45,109 @@ function run (moreOpts) {
   }, moreOpts || {})).run()
 }
 
+test('skips optional packages when "optional" config is false', t => {
+  const fixture = new Tacks(Dir({
+    'package.json': File({
+      name: pkgName,
+      version: pkgVersion,
+      dependencies: {
+        a: '^1'
+      },
+      optionalDependencies: {
+        b: '^2',
+        c: '^3'
+      }
+    }),
+    'package-lock.json': File({
+      lockfileVersion: 1,
+      requires: true,
+      dependencies: {
+        a: {
+          version: '1.0.0',
+          requires: {
+            c: '3.0.0',
+            d: '4.0.0'
+          },
+          dependencies: {
+            c: {
+              version: '3.0.0'
+            },
+            d: {
+              version: '4.0.0',
+              optional: true
+            }
+          }
+        },
+        b: {
+          version: '2.0.0',
+          optional: true
+        },
+        c: {
+          version: '3.0.0',
+          optional: true
+        }
+      }
+    })
+  }))
+  fixture.create(prefix)
+
+  extract = (name, child, childPath, opts) => {
+    let files
+    if (child.name === 'a') {
+      files = new Tacks(Dir({
+        'package.json': File({
+          name: 'a',
+          version: '1.0.0',
+          dependencies: {
+            c: '3.0.0'
+          },
+          optionalDependencies: {
+            d: '4.0.0'
+          }
+        })
+      }))
+    } else if (child.name === 'b') {
+      files = new Tacks(Dir({
+        'package.json': File({
+          name: 'b',
+          version: '2.0.0'
+        })
+      }))
+    } else if (child.name === 'c') {
+      files = new Tacks(Dir({
+        'package.json': File({
+          name: 'c',
+          version: '3.0.0'
+        })
+      }))
+    } else if (child.name === 'd') {
+      files = new Tacks(Dir({
+        'package.json': File({
+          name: 'd',
+          version: '4.0.0'
+        })
+      }))
+    }
+    files.create(childPath)
+  }
+
+  const originalConsoleLog = console.log
+  console.log = () => {}
+  return run({ optional: false }).then(details => {
+    console.log(originalConsoleLog)
+    t.equal(details.pkgCount, 2)
+    const modP = path.join(prefix, 'node_modules')
+    t.ok(fs.statSync(path.join(modP, 'a')), 'dep a is there')
+    t.ok(fs.statSync(path.join(modP, 'a', 'node_modules', 'c')), 'nested dep c is there')
+    t.throws(() => {
+      fs.statSync(path.join(modP, 'b'))
+    }, 'optional dep b not in node_modules')
+    t.throws(() => {
+      fs.statSync(path.join(modP, 'd'))
+    }, 'optional dep d not in node_modules')
+  })
+})
+
 test('throws error when no package.json is found', t => {
   const fixture = new Tacks(Dir({
     'index.js': File('var a = 1')
