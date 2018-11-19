@@ -33,6 +33,7 @@ const CipmOpts = figgyPudding({
   log: {},
   loglevel: {},
   only: {},
+  optional: { default: true },
   prefix: {},
   prod: 'production',
   production: {},
@@ -205,7 +206,7 @@ class Installer {
     this.log.verbose('extractTree', 'extracting dependencies to node_modules/')
     const cg = this.log.newItem('extractTree', this.expectedTotal)
     return tree.forEachAsync((dep, next) => {
-      if (!this.checkDepEnv(dep)) { return }
+      if (!this.checkShouldInstall(dep)) { return }
       const depPath = dep.path(this.prefix)
       const spec = npa.resolve(dep.name, dep.version, this.prefix)
       if (dep.isRoot) {
@@ -251,7 +252,7 @@ class Installer {
       .then(() => cg.finish())
   }
 
-  checkDepEnv (dep) {
+  checkShouldInstall (dep) {
     const includeDev = (
       // Covers --dev and --development (from npm config itself)
       this.opts.dev ||
@@ -263,14 +264,18 @@ class Installer {
       /^dev(elopment)?$/.test(this.opts.also)
     )
     const includeProd = !/^dev(elopment)?$/.test(this.opts.only)
-    return (dep.dev && includeDev) || (!dep.dev && includeProd)
+    const checkDepEnv = (dep.dev && includeDev) || (!dep.dev && includeProd)
+
+    const checkOptional = !dep.optional || (dep.optional && this.opts.optional)
+
+    return checkDepEnv && checkOptional
   }
 
   updateJson (tree) {
     this.log.verbose('updateJson', 'updating json deps to include _from')
     const pkgJsons = new Map()
     return tree.forEachAsync((dep, next) => {
-      if (!this.checkDepEnv(dep)) { return }
+      if (!this.checkShouldInstall(dep)) { return }
       const spec = npa.resolve(dep.name, dep.version)
       const depPath = dep.path(this.prefix)
       return next()
@@ -291,7 +296,7 @@ class Installer {
   buildTree (tree, pkgJsons) {
     this.log.verbose('buildTree', 'finalizing tree and running scripts')
     return tree.forEachAsync((dep, next) => {
-      if (!this.checkDepEnv(dep)) { return }
+      if (!this.checkShouldInstall(dep)) { return }
       const spec = npa.resolve(dep.name, dep.version)
       const depPath = dep.path(this.prefix)
       const pkg = pkgJsons.get(dep)
